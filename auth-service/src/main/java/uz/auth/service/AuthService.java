@@ -27,7 +27,7 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
-public class AuthService {
+public class AuthService  implements IAuthService{
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;

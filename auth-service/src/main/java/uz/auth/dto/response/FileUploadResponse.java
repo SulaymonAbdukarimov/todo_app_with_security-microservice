@@ -18,4 +18,5 @@ public class FileUploadResponse {
     private long size;
     private String category;
     private String downloadUrl;
+    private String imageUrl;
 }

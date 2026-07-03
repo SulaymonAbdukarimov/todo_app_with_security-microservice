@@ -23,6 +23,7 @@ import uz.file.dto.response.FileResponse;
 import uz.file.entity.FileMetadata;
 import uz.file.exception.FileAccessDeniedException;
 import uz.file.exception.ResourceNotFoundException;
+import uz.file.mapper.FileMapper;
 import uz.file.repository.FileMetadataRepository;
 import uz.file.security.AuthenticatedUser;
 
@@ -35,6 +36,7 @@ public class FileController {
 
     private final MinioClient minioClient;
     private final FileMetadataRepository fileMetadataRepository;
+    private final FileMapper mapper;
 
     @Value("${minio.bucket-name}")
     private String bucketName;
@@ -78,7 +80,7 @@ public class FileController {
                 .body(ApiResponse.success("File uploaded", mapToResponse(metadata)));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/download/{id}")
     public ResponseEntity<InputStreamResource> download(@PathVariable @NotNull UUID id) throws Exception {
         AuthenticatedUser user = getCurrentUser();
         FileMetadata metadata = fileMetadataRepository.findById(id)
@@ -97,6 +99,25 @@ public class FileController {
                 .contentType(MediaType.parseMediaType(metadata.getContentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.attachment().filename(metadata.getOriginalFilename()).build().toString())
+                .body(new InputStreamResource(object));
+    }
+
+    @GetMapping("/public/{id}")
+    public ResponseEntity<InputStreamResource> viewImage(@PathVariable @NotNull UUID id) throws Exception {
+        FileMetadata metadata = fileMetadataRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("File not found with id: " + id));
+
+        if (metadata.getContentType() == null || !metadata.getContentType().startsWith("image/")) {
+            throw new FileAccessDeniedException("This file is not a publicly viewable image");
+        }
+
+        GetObjectResponse object = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(metadata.getBucket())
+                .object(metadata.getObjectKey())
+                .build());
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(metadata.getContentType()))
                 .body(new InputStreamResource(object));
     }
 
@@ -120,13 +141,30 @@ public class FileController {
     }
 
     private FileResponse mapToResponse(FileMetadata metadata) {
+        boolean isImage = metadata.getContentType() != null && metadata.getContentType().startsWith("image/");
         return FileResponse.builder()
                 .id(metadata.getId())
                 .originalFilename(metadata.getOriginalFilename())
                 .contentType(metadata.getContentType())
                 .size(metadata.getSize())
                 .category(metadata.getCategory())
-                .downloadUrl("/api/v1/files/" + metadata.getId())
+                .downloadUrl("/api/v1/files/download/" + metadata.getId())
+                .imageUrl(isImage ? "/api/v1/files/public/" + metadata.getId() : null)
                 .build();
     }
+
+    @GetMapping("/internal/{id}")
+    public ResponseEntity<ApiResponse<FileResponse>> getOne(@PathVariable @NotNull UUID id) {
+        AuthenticatedUser user = getCurrentUser();
+        FileMetadata metadata = fileMetadataRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("File not found with id: " + id));
+
+        if (!metadata.getOwnerId().equals(user.id())) {
+            throw new FileAccessDeniedException("You do not have access to this file");
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("File found:",mapToResponse(metadata)));
+    }
+
+
 }

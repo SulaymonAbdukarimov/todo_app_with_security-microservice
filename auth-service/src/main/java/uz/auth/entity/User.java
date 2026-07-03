@@ -6,6 +6,7 @@ import lombok.*;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
+import uz.auth.dto.response.UserResponse;
 import uz.auth.enums.Role;
 
 import java.time.LocalDateTime;
@@ -74,4 +75,6 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled() { return true; }
+
+
 }
