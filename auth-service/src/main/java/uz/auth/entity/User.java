@@ -1,5 +1,6 @@
 package uz.auth.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.security.core.GrantedAuthority;
@@ -18,6 +19,11 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+// UserDetails' derived getters (authorities, username, isAccountNonExpired, ...) aren't real
+// persistent fields; Jackson would otherwise try to deserialize the Redis cache entry back
+// into them (and fail hard on the abstract GrantedAuthority collection).
+@JsonIgnoreProperties({"authorities", "username", "accountNonExpired", "accountNonLocked",
+        "credentialsNonExpired", "enabled"})
 public class User implements UserDetails {
 
     @Id
@@ -39,6 +45,8 @@ public class User implements UserDetails {
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    private String avatarFileId;
 
     @PrePersist
     protected void onCreate() {

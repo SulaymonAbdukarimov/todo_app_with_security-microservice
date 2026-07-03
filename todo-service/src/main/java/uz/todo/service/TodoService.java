@@ -8,6 +8,9 @@ import uz.todo.exception.ResourceNotFoundException;
 import uz.todo.repository.TodoRepository;
 import uz.todo.security.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -15,7 +18,11 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import uz.common.event.TodoCompletedEvent;
+import uz.common.event.TodoCreatedEvent;
+import uz.common.messaging.RabbitConstants;
 
+import java.util.ArrayList;
 import java.util.Map;
 
 @Service
@@ -24,11 +31,17 @@ import java.util.Map;
 public class TodoService {
 
     private final TodoRepository todoRepository;
+    private final RabbitTemplate rabbitTemplate;
 
     private AuthenticatedUser getCurrentUser() {
         return (AuthenticatedUser) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
 
+    public Long currentUserId() {
+        return getCurrentUser().id();
+    }
+
+    @CacheEvict(value = "todos", allEntries = true)
     public TodoResponse createTodo(TodoRequest request) {
         AuthenticatedUser user = getCurrentUser();
 
@@ -40,7 +53,16 @@ public class TodoService {
                 .userId(user.id())
                 .build();
 
-        return mapToResponse(todoRepository.save(todo));
+        Todo saved = todoRepository.save(todo);
+
+        rabbitTemplate.convertAndSend(RabbitConstants.TODO_EXCHANGE, RabbitConstants.TODO_CREATED_ROUTING_KEY,
+                TodoCreatedEvent.builder()
+                        .todoId(saved.getId())
+                        .userId(saved.getUserId())
+                        .title(saved.getTitle())
+                        .build());
+
+        return mapToResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -53,6 +75,11 @@ public class TodoService {
                 .map(this::mapToResponse);
     }
 
+    // Cached at the single-item level rather than on getAllTodos: a Page<TodoResponse>
+    // has no stable Jackson type hint to deserialize back into on a cache hit (it comes
+    // back as a LinkedHashMap and blows up at the ResponseEntity write), whereas a plain
+    // TodoResponse is a concrete, safely (de)serializable POJO.
+    @Cacheable(value = "todos", key = "#root.target.currentUserId() + '-' + #id")
     @Transactional(readOnly = true)
     public TodoResponse getTodoById(Long id) {
         AuthenticatedUser user = getCurrentUser();
@@ -61,6 +88,7 @@ public class TodoService {
         return mapToResponse(todo);
     }
 
+    @CacheEvict(value = "todos", allEntries = true)
     public TodoResponse updateTodo(Long id, TodoRequest request) {
         AuthenticatedUser user = getCurrentUser();
         Todo todo = todoRepository.findByIdAndUserId(id, user.id())
@@ -74,15 +102,28 @@ public class TodoService {
         return mapToResponse(todoRepository.save(todo));
     }
 
+    @CacheEvict(value = "todos", allEntries = true)
     public TodoResponse toggleComplete(Long id) {
         AuthenticatedUser user = getCurrentUser();
         Todo todo = todoRepository.findByIdAndUserId(id, user.id())
                 .orElseThrow(() -> new ResourceNotFoundException("Todo", id));
 
         todo.setCompleted(!todo.isCompleted());
-        return mapToResponse(todoRepository.save(todo));
+        Todo saved = todoRepository.save(todo);
+
+        if (saved.isCompleted()) {
+            rabbitTemplate.convertAndSend(RabbitConstants.TODO_EXCHANGE, RabbitConstants.TODO_COMPLETED_ROUTING_KEY,
+                    TodoCompletedEvent.builder()
+                            .todoId(saved.getId())
+                            .userId(saved.getUserId())
+                            .title(saved.getTitle())
+                            .build());
+        }
+
+        return mapToResponse(saved);
     }
 
+    @CacheEvict(value = "todos", allEntries = true)
     public void deleteTodo(Long id) {
         AuthenticatedUser user = getCurrentUser();
         Todo todo = todoRepository.findByIdAndUserId(id, user.id())
@@ -105,6 +146,16 @@ public class TodoService {
         );
     }
 
+    @CacheEvict(value = "todos", allEntries = true)
+    public TodoResponse addAttachment(Long id, String fileId) {
+        AuthenticatedUser user = getCurrentUser();
+        Todo todo = todoRepository.findByIdAndUserId(id, user.id())
+                .orElseThrow(() -> new ResourceNotFoundException("Todo", id));
+
+        todo.getAttachmentFileIds().add(fileId);
+        return mapToResponse(todoRepository.save(todo));
+    }
+
     private TodoResponse mapToResponse(Todo todo) {
         return TodoResponse.builder()
                 .id(todo.getId())
@@ -115,6 +166,7 @@ public class TodoService {
                 .dueDate(todo.getDueDate())
                 .createdAt(todo.getCreatedAt())
                 .updatedAt(todo.getUpdatedAt())
+                .attachmentFileIds(new ArrayList<>(todo.getAttachmentFileIds()))
                 .build();
     }
 }

@@ -28,6 +28,10 @@ public class JwtService {
         return extractClaim(token, claims -> claims.get("role", String.class));
     }
 
+    public String extractJti(String token) {
+        return extractClaim(token, Claims::getId);
+    }
+
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
         return claimsResolver.apply(extractAllClaims(token));
     }

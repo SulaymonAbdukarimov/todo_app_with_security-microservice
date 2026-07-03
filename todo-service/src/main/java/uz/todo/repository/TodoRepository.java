@@ -26,7 +26,7 @@ public interface TodoRepository extends JpaRepository<Todo, Long> {
     @Query("SELECT t FROM Todo t WHERE t.userId = :userId " +
             "AND (:completed IS NULL OR t.completed = :completed) " +
             "AND (:priority IS NULL OR t.priority = :priority) " +
-            "AND (:search IS NULL OR LOWER(t.title) LIKE LOWER(CONCAT('%', :search, '%')))")
+            "AND (:search IS NULL OR LOWER(t.title) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")
     Page<Todo> findByFilters(
             @Param("userId") Long userId,
             @Param("completed") Boolean completed,
@@ -37,4 +37,6 @@ public interface TodoRepository extends JpaRepository<Todo, Long> {
     List<Todo> findByUserIdAndDueDateBefore(Long userId, LocalDate date);
 
     long countByUserIdAndCompleted(Long userId, boolean completed);
+
+    List<Todo> findByCompletedFalseAndDueSoonNotifiedFalseAndDueDateLessThanEqual(LocalDate date);
 }

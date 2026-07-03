@@ -6,6 +6,8 @@ import uz.todo.enums.Priority;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "todos")
@@ -42,6 +44,15 @@ public class Todo {
 
     @Column(name = "user_id", nullable = false)
     private Long userId;
+
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "todo_attachments", joinColumns = @JoinColumn(name = "todo_id"))
+    @Column(name = "file_id")
+    private List<String> attachmentFileIds = new ArrayList<>();
+
+    @Column(nullable = false)
+    private boolean dueSoonNotified;
 
     @PrePersist
     protected void onCreate() {

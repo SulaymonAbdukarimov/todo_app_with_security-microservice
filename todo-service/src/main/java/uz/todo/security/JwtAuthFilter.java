@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -13,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import uz.common.security.JwtBlacklist;
 
 import java.io.IOException;
 import java.util.List;
@@ -22,6 +24,7 @@ import java.util.List;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final StringRedisTemplate redisTemplate;
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
@@ -40,18 +43,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         try {
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                String email = jwtService.extractUsername(jwt);
-                Long userId = jwtService.extractUserId(jwt);
-                String role = jwtService.extractRole(jwt);
+                String jti = jwtService.extractJti(jwt);
+                boolean blacklisted = jti != null
+                        && Boolean.TRUE.equals(redisTemplate.hasKey(JwtBlacklist.key(jti)));
 
-                AuthenticatedUser principal = new AuthenticatedUser(userId, email);
-                List<GrantedAuthority> authorities =
-                        List.of(new SimpleGrantedAuthority("ROLE_" + (role != null ? role : "USER")));
+                if (!blacklisted) {
+                    String email = jwtService.extractUsername(jwt);
+                    Long userId = jwtService.extractUserId(jwt);
+                    String role = jwtService.extractRole(jwt);
 
-                UsernamePasswordAuthenticationToken authToken =
-                        new UsernamePasswordAuthenticationToken(principal, null, authorities);
-                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authToken);
+                    AuthenticatedUser principal = new AuthenticatedUser(userId, email);
+                    List<GrantedAuthority> authorities =
+                            List.of(new SimpleGrantedAuthority("ROLE_" + (role != null ? role : "USER")));
+
+                    UsernamePasswordAuthenticationToken authToken =
+                            new UsernamePasswordAuthenticationToken(principal, null, authorities);
+                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                }
             }
         } catch (Exception e) {
             // invalid/expired/tampered token - leave unauthenticated;

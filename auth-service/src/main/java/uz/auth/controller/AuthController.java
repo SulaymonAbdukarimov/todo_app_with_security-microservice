@@ -32,4 +32,12 @@ public class AuthController {
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(ApiResponse.success("Login successful", response));
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @RequestHeader("Authorization") String authHeader) {
+        String token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
+        authService.logout(token);
+        return ResponseEntity.ok(ApiResponse.success("Logged out successfully", null));
+    }
 }
